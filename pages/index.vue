@@ -11,27 +11,27 @@
       <div class="space-y-4 mt-4">
         <div v-if="calculationMode !== 'pace'" class="grid w-full items-center gap-1.5">
           <Label for="pace">Pace (min:sec per km)</Label>
-          <Input id="pace" v-model="paceInput" @input="handlePaceInput" placeholder="mm:ss" />
+          <Input id="pace" v-model="paceInput" @input="handlePaceInput" placeholder="mm:ss" data-testid="pace-input" />
         </div>
         <div v-if="calculationMode !== 'distance'" class="grid w-full items-center gap-1.5">
           <Label for="distance">Distance (km)</Label>
-          <Input id="distance" v-model="distance" type="number" step="0.01" min="0" />
+          <Input data-testid="distance-input" id="distance" v-model="distance" type="number" min="0" />
         </div>
         <div v-if="calculationMode !== 'time'" class="grid w-full items-center gap-1.5">
-          <Label for="time">Time (min:sec)</Label>
-          <Input id="time" v-model="timeInput" @input="handleTimeInput" placeholder="mm:ss" />
+          <Label for="time">Time (hour:min)</Label>
+          <Input id="time" v-model="timeInput" @input="handleTimeInput" placeholder="hh:mm" data-testid="time-input" />
         </div>
         <div class="mt-6">
           <Label>{{ calculationMode === 'time' ? 'Time' : calculationMode === 'distance' ? 'Distance' : 'Pace' }}</Label>
           <div class="flex h-14 w-full bg-background text-4xl font-extrabold justify-center items-center">
             <template v-if="calculationMode === 'time'">
-              {{ formattedTime }}
+              <div data-testid="time-output">{{ formattedTime }}</div>
             </template>
             <template v-else-if="calculationMode === 'distance'">
-              {{ distance !== null ? distance.toFixed(2) : '' }} km
+              <div data-testid="distance-output">{{ distance !== null ? distance.toFixed(2) + '  km' : ''  }} </div>
             </template>
             <template v-else>
-              {{ formattedPace }} min/km
+              <div data-testid="pace-output">{{ formattedPace }}</div>
             </template>
           </div>
         </div>
@@ -44,8 +44,7 @@
 import { ref, computed, watch } from 'vue'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 const calculationMode = ref('time')
 const paceInput = ref('')
@@ -53,6 +52,20 @@ const pace = ref<number | null>(null)
 const distance = ref<number | null>(null)
 const timeInput = ref('')
 const time = ref<number | null>(null)
+
+const formatInputTime = (input: string): string => {
+  const digits = input.replace(/\D/g, '').padStart(6, '0')
+  const hours = parseInt(digits.slice(0, 2))
+  const minutes = parseInt(digits.slice(2, 4))
+  const seconds = parseInt(digits.slice(4, 6))
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  } else if (minutes > 0 || seconds > 0) {
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
+  }
+  return ''
+}
 
 const handleTimeFormatInput = (input: string, updateRef: (value: number | null) => void) => {
   const regex = /^(\d{1,2}):([0-5]\d)$/
@@ -71,23 +84,27 @@ const handleTimeFormatInput = (input: string, updateRef: (value: number | null) 
 
 const handlePaceInput = (event: Event) => {
   const input = (event.target as HTMLInputElement).value
-  if (handleTimeFormatInput(input, (value) => pace.value = value)) {
-    paceInput.value = input
-  }
+  const formattedInput = formatInputTime(input)
+  paceInput.value = formattedInput
+  handleTimeFormatInput(formattedInput, (value) => pace.value = value)
 }
 
 const handleTimeInput = (event: Event) => {
   const input = (event.target as HTMLInputElement).value
-  if (handleTimeFormatInput(input, (value) => time.value = value)) {
-    timeInput.value = input
-  }
+  const formattedInput = formatInputTime(input)
+  timeInput.value = formattedInput
+  handleTimeFormatInput(formattedInput, (value) => time.value = value)
 }
 
 const formatTimeValue = (value: number | null): string => {
   if (value === null) return ''
   const totalSeconds = Math.round(value * 60)
-  const minutes = Math.floor(totalSeconds / 60)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
   const seconds = totalSeconds % 60
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  }
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
@@ -95,7 +112,7 @@ const calculateResult = computed(() => {
   if (calculationMode.value === 'time' && pace.value !== null && distance.value !== null) {
     return pace.value * distance.value // Calculate time in minutes
   } else if (calculationMode.value === 'distance' && pace.value !== null && time.value !== null) {
-    return (time.value / pace.value) // Calculate distance in km
+    return time.value / (pace.value / 60) // Calculate distance in km
   } else if (calculationMode.value === 'pace' && time.value !== null && distance.value !== null) {
     return time.value / distance.value // Calculate pace in minutes per km
   }
@@ -117,21 +134,17 @@ watch(calculateResult, (newValue) => {
 })
 
 watch(calculationMode, () => {
-  // Reset values when changing calculation mode
-  if (calculationMode.value === 'time') {
-    timeInput.value = ''
-    time.value = null
-  } else if (calculationMode.value === 'distance') {
-    distance.value = null
-  } else if (calculationMode.value === 'pace') {
-    paceInput.value = ''
-    pace.value = null
-  }
+  // Reset all values whesn changing calculation mode
+  paceInput.value = ''
+  pace.value = null
+  distance.value = null
+  timeInput.value = ''
+  time.value = null
 })
 
 const formattedPace = computed(() => {
   if (pace.value === null) return ''
-  return `${formatTimeValue(pace.value)}`
+  return `${formatTimeValue(pace.value)} min/km`
 })
 
 const formattedTime = computed(() => formatTimeValue(time.value))
